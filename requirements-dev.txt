@@ -1,0 +1,2 @@
+# Optional: Meta OpenEnv CLI for `openenv validate --url http://...`
+openenv-core

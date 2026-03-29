@@ -1,0 +1,22 @@
+name: customs-clearance-env
+version: 1.0.0
+description: >
+  An OpenEnv environment simulating Custom House Agent (CHA) operations
+  in Indian sea freight. Agents must classify goods, validate documents,
+  and make clearance decisions across 3 difficulty levels.
+author: Rakesh Karthikeyan
+tags:
+  - real-world
+  - trade-compliance
+  - document-processing
+  - customs
+tasks:
+  - id: task1
+    name: HS Code Classification
+    difficulty: easy
+  - id: task2
+    name: Document Validation
+    difficulty: medium
+  - id: task3
+    name: Full Clearance Decision
+    difficulty: hard
