@@ -264,6 +264,7 @@ Metadata file: `openenv.yaml`.
 | Path | Role |
 |------|------|
 | `main.py` | FastAPI app and route definitions. |
+| `app.py` | Re-exports `app` for HF Docker (`uvicorn app:app`). |
 | `environment.py` | Reset/step state machine. |
 | `documents.py` | Synthetic shipments + ground truth. |
 | `graders.py` | Task-specific scoring. |
