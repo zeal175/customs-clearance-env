@@ -4,7 +4,9 @@ emoji: 🚢
 colorFrom: blue
 colorTo: green
 sdk: docker
+app_port: 7860
 pinned: false
+short_description: "OpenEnv CHA — sea freight HS, docs, clearance (0–1)"
 tags:
   - openenv
 ---
