@@ -1,3 +1,14 @@
+---
+title: customs-clearance-env
+emoji: 🚢
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+tags:
+  - openenv
+---
+
 # customs-clearance-env
 
 **OpenEnv-style environment — Custom House Agent (CHA), Indian sea freight**
