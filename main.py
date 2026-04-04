@@ -152,7 +152,7 @@ def reset_episode(body: ResetRequest | None = None) -> dict[str, Any]:
         obs = env.reset(body.task_id, body.seed)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    return obs
+    return obs.model_dump()
 
 
 @app.post("/step", response_model=StepResponse)
