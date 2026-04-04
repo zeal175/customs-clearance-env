@@ -145,7 +145,9 @@ def mcp_stub(payload: Any = Body(None)) -> dict[str, Any]:
 
 
 @app.post("/reset")
-def reset_episode(body: ResetRequest) -> dict[str, Any]:
+def reset_episode(body: ResetRequest | None = None) -> dict[str, Any]:
+    if body is None:
+        body = ResetRequest()
     try:
         obs = env.reset(body.task_id, body.seed)
     except ValueError as e:
