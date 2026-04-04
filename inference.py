@@ -1,9 +1,9 @@
 """
 Hackathon inference entrypoint: OpenAI-compatible client using env vars:
-  API_BASE_URL — LLM API base (e.g. https://api.openai.com/v1)
-  MODEL_NAME   — model id
-  HF_TOKEN     — API key (checklist name; used as api_key for the client)
-  ENV_BASE_URL — customs-clearance-env HTTP API (default http://127.0.0.1:7860)
+  API_BASE_URL     — LLM API base (e.g. https://api.openai.com/v1)
+  MODEL_NAME       — model id
+  OPENAI_API_KEY   — API key (checklist name; used as api_key for the client)
+  ENV_BASE_URL     — customs-clearance-env HTTP API (default http://127.0.0.1:7860)
 """
 
 from __future__ import annotations
@@ -98,9 +98,9 @@ def evaluate_all_tasks(client: OpenAI, env_base_url: str, model: str) -> list[Ba
 
 def main() -> None:
     try:
-        api_base = os.environ["API_BASE_URL"]
-        model = os.environ["MODEL_NAME"]
-        token = os.environ["HF_TOKEN"]
+        api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
+        model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+        token = os.environ["OPENAI_API_KEY"]
     except KeyError as e:
         print(
             "Missing required env var:",
@@ -108,7 +108,7 @@ def main() -> None:
             file=sys.stderr,
         )
         print(
-            "Required: API_BASE_URL, MODEL_NAME, HF_TOKEN. Optional: ENV_BASE_URL (default http://127.0.0.1:7860).",
+            "Required: OPENAI_API_KEY. Optional: API_BASE_URL, MODEL_NAME, ENV_BASE_URL (default http://127.0.0.1:7860).",
             file=sys.stderr,
         )
         raise SystemExit(1) from e

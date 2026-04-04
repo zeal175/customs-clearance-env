@@ -1,0 +1,20 @@
+[project]
+name = "customs-clearance-env"
+version = "1.0.0"
+description = "An OpenEnv environment simulating Custom House Agent (CHA) operations in Indian sea freight."
+readme = "README.md"
+authors = [
+    { name = "Rakesh Karthikeyan" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core>=0.1.0",
+    "pydantic>=2.0.0",
+]
+
+[project.scripts]
+server = "server.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -7,8 +7,22 @@ from __future__ import annotations
 import random
 from typing import Any
 
+from pydantic import BaseModel
+
 from documents import TASK_DOCUMENTS, get_document_by_task
 from graders import ActionForGrading, grade_for_task
+
+
+class Observation(BaseModel):
+    document_type: str
+    document_content: dict[str, Any]
+    task_instruction: str
+    episode_id: int
+    shipment_id: str
+
+
+class Reward(BaseModel):
+    value: float
 
 
 class ChaEnvironment:
@@ -22,7 +36,7 @@ class ChaEnvironment:
         self._current_doc: dict[str, Any] | None = None
         self._episode_count: int = 0
 
-    def reset(self, task_id: str, seed: int | None = None) -> dict[str, Any]:
+    def reset(self, task_id: str, seed: int | None = None) -> Observation:
         if task_id not in TASK_DOCUMENTS:
             raise ValueError(f"Unknown task_id: {task_id}")
         self._task_id = task_id
@@ -36,16 +50,16 @@ class ChaEnvironment:
         self._last_breakdown = {}
         return self._build_observation()
 
-    def _build_observation(self) -> dict[str, Any]:
+    def _build_observation(self) -> Observation:
         assert self._current_doc is not None
         d = self._current_doc
-        return {
-            "document_type": d["document_type"],
-            "document_content": d["document_content"],
-            "task_instruction": d["task_instruction"],
-            "episode_id": self._episode_count,
-            "shipment_id": d["id"],
-        }
+        return Observation(
+            document_type=d["document_type"],
+            document_content=d["document_content"],
+            task_instruction=d["task_instruction"],
+            episode_id=self._episode_count,
+            shipment_id=d["id"],
+        )
 
     def step(self, action: dict[str, Any]) -> dict[str, Any]:
         if self._done:
@@ -57,9 +71,10 @@ class ChaEnvironment:
         self._last_reward = score
         self._last_breakdown = breakdown
         self._done = True
+        reward_obj = Reward(value=score)
         return {
-            "observation": self._build_observation(),
-            "reward": score,
+            "observation": self._build_observation().model_dump(),
+            "reward": reward_obj.value,
             "done": True,
             "info": {
                 "breakdown": breakdown,
