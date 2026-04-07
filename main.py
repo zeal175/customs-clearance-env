@@ -72,7 +72,7 @@ class Action(BaseModel):
 
 
 class Reward(BaseModel):
-    score: float
+    reward: float
     breakdown: dict[str, Any]
 
 
@@ -216,8 +216,8 @@ def grader_endpoint(body: GraderRequest) -> Reward:
         )
 
     a = ActionForGrading.model_validate(body.action.model_dump())
-    score, breakdown = grade_for_task(tid, a, gt)
-    return Reward(score=score, breakdown=breakdown)
+    reward, breakdown = grade_for_task(tid, a, gt)
+    return Reward(reward=reward, breakdown=breakdown)
 
 
 @app.get("/baseline", response_model=list[BaselineResult])

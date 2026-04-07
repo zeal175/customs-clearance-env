@@ -14,9 +14,12 @@ tasks:
   - id: task1
     name: HS Code Classification
     difficulty: easy
+    evaluator: true
   - id: task2
     name: Document Validation
     difficulty: medium
+    evaluator: true
   - id: task3
     name: Full Clearance Decision
     difficulty: hard
+    evaluator: true

@@ -21,6 +21,14 @@ def hs_chapter_digits(hs: str) -> str:
     return digits[:4] if len(digits) >= 4 else digits
 
 
+def nudge_score(score: float) -> float:
+    """
+    Validator requires scores strictly in (0, 1).
+    Maps [0, 1] -> [0.01, 0.99].
+    """
+    return round(0.01 + 0.98 * max(0.0, min(1.0, score)), 4)
+
+
 class ActionForGrading(BaseModel):
     hs_code: str
     flags: list[str]
@@ -35,10 +43,10 @@ def grade_task1(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
     exp = normalize_hs_code(str(correct["hs_code"]))
     got = normalize_hs_code(action.hs_code)
     if got == exp:
-        return 1.0, {"hs_match": 1.0, "component": "exact"}
+        return nudge_score(1.0), {"hs_match": 1.0, "component": "exact"}
     if hs_chapter_digits(got) == hs_chapter_digits(exp) and len(hs_chapter_digits(got)) == 4:
-        return 0.5, {"hs_match": 0.5, "component": "chapter_only"}
-    return 0.0, {"hs_match": 0.0, "component": "wrong"}
+        return nudge_score(0.5), {"hs_match": 0.5, "component": "chapter_only"}
+    return nudge_score(0.0), {"hs_match": 0.0, "component": "wrong"}
 
 
 def grade_task2(action: ActionForGrading, correct: dict[str, Any]) -> tuple[float, dict[str, Any]]:
@@ -65,7 +73,7 @@ def grade_task2(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
         if (action.recommendation or "").strip() == (correct.get("recommendation") or "").strip()
         else 0.0
     )
-    score = round(max(0.0, min(1.0, flag_part + rec_part)), 4)
+    score = nudge_score(flag_part + rec_part)
 
     breakdown = {
         "correctly_caught": sorted(correctly_caught),
@@ -127,8 +135,7 @@ def grade_task3(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
     if duty_ok:
         duty_part += 0.10
 
-    total = hs_part + flag_part + rec_part + duty_part
-    total = round(max(0.0, min(1.0, total)), 4)
+    total = nudge_score(hs_part + flag_part + rec_part + duty_part)
 
     breakdown = {
         "hs_component": hs_part,
@@ -169,7 +176,7 @@ def calculate_unified_reward(action: ActionForGrading, correct_answer: dict[str,
     if (action.recommendation or "").strip() == (correct_answer.get("recommendation") or "").strip():
         reward += 0.20
 
-    score = round(max(0.0, min(1.0, reward)), 4)
+    score = nudge_score(reward)
     breakdown = {
         "unified_score": score,
         "correctly_caught": sorted(correctly_caught),
