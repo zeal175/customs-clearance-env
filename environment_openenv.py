@@ -30,8 +30,6 @@ class ChaAction(Action):
     duty_amount_inr: float | None = Field(default=None)
     task_id: str = Field(default="task1", description="task1|task2|task3")
 
-    model_config = {"extra": "allow"}
-
 
 # ── Observation ───────────────────────────────────────────────────────────────
 class ChaObservation(Observation):
@@ -42,8 +40,6 @@ class ChaObservation(Observation):
     episode_id: int = Field(default=0)
     shipment_id: str = Field(default="")
     task_id: str = Field(default="task1")
-
-    model_config = {"extra": "allow"}
 
 
 # ── Environment ───────────────────────────────────────────────────────────────
@@ -126,3 +122,5 @@ class ChaOpenEnvEnvironment(Environment[ChaAction, ChaObservation, dict]):
 
     def close(self) -> None:
         pass
+
+    
