@@ -15,8 +15,7 @@ from environment_openenv import ChaAction, ChaObservation, ChaOpenEnvEnvironment
 from documents import TASK_DOCUMENTS, find_task_for_shipment, get_shipment_by_id, list_task_ids
 from environment import ChaEnvironment
 from graders import ActionForGrading, grade_for_task, nudge_score
-from baseline import BaselineResult, run_baseline_tasks
-from inference import evaluate_all_tasks
+from baseline import BaselineResult, run_baseline_tasks, evaluate_all_tasks
 from openai import OpenAI
 
 app = FastAPI(
