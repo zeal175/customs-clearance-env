@@ -21,12 +21,13 @@ def hs_chapter_digits(hs: str) -> str:
     return digits[:4] if len(digits) >= 4 else digits
 
 
-def nudge_score(score: float) -> float:
+def nudge_score(score: float | int) -> float:
     """
     Validator requires scores strictly in (0, 1).
-    Maps [0, 1] -> [0.01, 0.99].
+    Maps [0, 1] -> [0.1, 0.9] to stay very safe from edge rounding.
     """
-    return round(0.01 + 0.98 * max(0.0, min(1.0, score)), 4)
+    s = float(score)
+    return round(0.1 + 0.8 * max(0.0, min(1.0, s)), 4)
 
 
 class ActionForGrading(BaseModel):
@@ -43,10 +44,10 @@ def grade_task1(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
     exp = normalize_hs_code(str(correct["hs_code"]))
     got = normalize_hs_code(action.hs_code)
     if got == exp:
-        return nudge_score(1.0), {"hs_match": 1.0, "component": "exact"}
+        return nudge_score(1.0), {"hs_match": nudge_score(1.0), "component": "exact"}
     if hs_chapter_digits(got) == hs_chapter_digits(exp) and len(hs_chapter_digits(got)) == 4:
-        return nudge_score(0.5), {"hs_match": 0.5, "component": "chapter_only"}
-    return nudge_score(0.0), {"hs_match": 0.0, "component": "wrong"}
+        return nudge_score(0.5), {"hs_match": nudge_score(0.5), "component": "chapter_only"}
+    return nudge_score(0.0), {"hs_match": nudge_score(0.0), "component": "wrong"}
 
 
 def grade_task2(action: ActionForGrading, correct: dict[str, Any]) -> tuple[float, dict[str, Any]]:
@@ -79,10 +80,10 @@ def grade_task2(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
         "correctly_caught": sorted(correctly_caught),
         "missed": sorted(missed_flags),
         "false_flags": sorted(false_flags),
-        "recall": round(recall, 4),
-        "false_penalty": round(false_penalty, 4),
-        "flags_component": round(flag_part, 4),
-        "recommendation_component": rec_part,
+        "recall": nudge_score(recall),
+        "false_penalty": nudge_score(false_penalty / 10.0),  # scaled
+        "flags_component": nudge_score(flag_part),
+        "recommendation_component": nudge_score(rec_part),
     }
     return score, breakdown
 
@@ -138,10 +139,10 @@ def grade_task3(action: ActionForGrading, correct: dict[str, Any]) -> tuple[floa
     total = nudge_score(hs_part + flag_part + rec_part + duty_part)
 
     breakdown = {
-        "hs_component": hs_part,
-        "flags_component": flag_part,
-        "recommendation_component": rec_part,
-        "value_duty_component": duty_part,
+        "hs_component": nudge_score(hs_part),
+        "flags_component": nudge_score(flag_part),
+        "recommendation_component": nudge_score(rec_part),
+        "value_duty_component": nudge_score(duty_part),
         "assessable_within_5pct": av_ok,
         "duty_within_5pct": duty_ok,
     }

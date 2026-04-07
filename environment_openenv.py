@@ -13,9 +13,8 @@ from typing import Any, Optional
 from pydantic import Field
 from openenv.core.env_server.interfaces import Action, Environment, Observation
 
-from documents import TASK_DOCUMENTS
-from graders import ActionForGrading, grade_for_task
-from documents import get_document_by_task
+from documents import TASK_DOCUMENTS, get_document_by_task, list_task_ids
+from graders import ActionForGrading, grade_for_task, nudge_score
 import random
 
 
@@ -81,7 +80,7 @@ class ChaOpenEnvEnvironment(Environment[ChaAction, ChaObservation, dict]):
             shipment_id=d["id"],
             task_id=self._task_id,
             done=False,
-            reward=None,
+            reward=nudge_score(0.0),
         )
 
     def step(self, action: ChaAction, **kwargs) -> ChaObservation:
