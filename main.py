@@ -34,7 +34,6 @@ METADATA = {
 # We use the SDK server only to register the /ws route.
 # We explicitly define the REST routes for maximum compliance.
 _oe_server = HTTPEnvServer(
-    app=app,
     env=ChaOpenEnvEnvironment,
     action_cls=ChaAction,
     observation_cls=ChaObservation,
