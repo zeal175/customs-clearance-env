@@ -103,7 +103,7 @@ def main() -> None:
         token = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
 
         env_base = os.environ.get("ENV_BASE_URL") or os.environ.get(
-            "CHA_BASE_URL", "http://127.0.0.1:7860"
+            "CHA_BASE_URL", "https://zealowo-customs-clearance.hf.space"
         )
         client = OpenAI(api_key=token, base_url=api_base.rstrip("/"))
         print("[START]")
@@ -118,3 +118,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    
