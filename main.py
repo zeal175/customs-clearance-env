@@ -186,6 +186,7 @@ def list_tasks() -> dict[str, Any]:
                 "name": name,
                 "difficulty": difficulty,
                 "num_shipments": len(pool),
+                "evaluator": True,
             }
         )
     return {
