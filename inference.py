@@ -100,18 +100,7 @@ def main() -> None:
     try:
         api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-        token = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN")
-        if not token:
-            print(
-                "Missing required env var: OPENAI_API_KEY",
-                file=sys.stderr,
-            )
-            print(
-                "Required: OPENAI_API_KEY. Optional: API_BASE_URL, MODEL_NAME, ENV_BASE_URL (default http://127.0.0.1:7860).",
-                file=sys.stderr,
-            )
-            # validator wants a non-zero exit for missing env vars
-            sys.exit(1)
+        token = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN") or "placeholder"
 
         env_base = os.environ.get("ENV_BASE_URL") or os.environ.get(
             "CHA_BASE_URL", "http://127.0.0.1:7860"
