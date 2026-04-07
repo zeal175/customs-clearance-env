@@ -2,7 +2,7 @@
 Hackathon inference entrypoint: OpenAI-compatible client using env vars:
   API_BASE_URL     — LLM API base (e.g. https://api.openai.com/v1)
   MODEL_NAME       — model id
-  OPENAI_API_KEY   — API key (checklist name; used as api_key for the client)
+  HF_TOKEN         — API key (checklist name; used as api_key for the client)
   ENV_BASE_URL     — customs-clearance-env HTTP API (default http://127.0.0.1:7860)
 """
 
@@ -100,25 +100,31 @@ def main() -> None:
     try:
         api_base = os.environ.get("API_BASE_URL", "https://api.openai.com/v1")
         model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-        token = os.environ["OPENAI_API_KEY"]
-    except KeyError as e:
-        print(
-            "Missing required env var:",
-            e.args[0],
-            file=sys.stderr,
-        )
-        print(
-            "Required: OPENAI_API_KEY. Optional: API_BASE_URL, MODEL_NAME, ENV_BASE_URL (default http://127.0.0.1:7860).",
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from e
+        token = os.environ.get("OPENAI_API_KEY") or os.environ.get("HF_TOKEN")
+        if not token:
+            print(
+                "Missing required env var: OPENAI_API_KEY",
+                file=sys.stderr,
+            )
+            print(
+                "Required: OPENAI_API_KEY. Optional: API_BASE_URL, MODEL_NAME, ENV_BASE_URL (default http://127.0.0.1:7860).",
+                file=sys.stderr,
+            )
+            # validator wants a non-zero exit for missing env vars
+            sys.exit(1)
 
-    env_base = os.environ.get("ENV_BASE_URL") or os.environ.get(
-        "CHA_BASE_URL", "http://127.0.0.1:7860"
-    )
-    client = OpenAI(api_key=token, base_url=api_base.rstrip("/"))
-    for row in evaluate_all_tasks(client, env_base, model):
-        print(f"{row.task_id}: score={row.score} error={row.error}")
+        env_base = os.environ.get("ENV_BASE_URL") or os.environ.get(
+            "CHA_BASE_URL", "http://127.0.0.1:7860"
+        )
+        client = OpenAI(api_key=token, base_url=api_base.rstrip("/"))
+        print("[START]")
+        for row in evaluate_all_tasks(client, env_base, model):
+            print("[STEP]")
+            print(f"{row.task_id}: score={row.score} error={row.error}")
+        print("[END]")
+    except Exception as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
