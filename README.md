@@ -22,119 +22,215 @@ This repository simulates work a **Custom House Agent** does on **import/export 
 
 ---
 
-## Judge checklist — live Space
+## Architecture
 
-Automated checks often hit your **Hugging Face Space URL first**. Deploy the Space and verify:
+```mermaid
+flowchart TD
+    subgraph Agent
+        LLM["LLM Agent<br/>(inference.py)"]
+    end
+    subgraph Environment
+        API["FastAPI Server<br/>(main.py)"]
+        ENV["ChaOpenEnvEnvironment<br/>(environment_openenv.py)"]
+        GEN["Procedural Generator<br/>(dataset_generator.py)"]
+        POOL["Canonical Dataset<br/>(documents.py)"]
+        GRADE["Graders<br/>(graders.py)"]
+    end
 
-```bash
-curl -s -X POST "https://YOUR_USERNAME-YOUR_SPACE_NAME.hf.space/reset" \
-  -H "Content-Type: application/json" \
-  -d '{"task_id":"task1"}' | python3 -m json.tool
+    LLM -- "POST /reset<br/>{task_id, seed}" --> API
+    API -- "observation" --> LLM
+    LLM -- "POST /step<br/>{action}" --> API
+    API -- "reward + done" --> LLM
+
+    API --> ENV
+    ENV -- "seed ≥ 1M" --> GEN
+    ENV -- "seed < 1M" --> POOL
+    ENV -- "grade" --> GRADE
 ```
-
-You must get **valid JSON** (observation), not an error page. Replace the URL with your actual Space URL (HF may use `.hf.space` or a custom subdomain; use the URL shown on your Space page).
 
 ---
 
-## Episode loop
+## Episode flow
 
-1. **`POST /reset`** — start an episode; receive an **observation** (documents + instruction).  
-2. **`POST /step`** — submit an **action**; receive **observation** (echo of the current episode observation), **reward** in `[0.0, 1.0]`, **`done: true`**, and **info** (including per-task **breakdown**).  
-3. Repeat from step 1 for a new shipment.
+### Single-step episodes (task1, task2, task3 from canonical pool)
 
-Optional: **`POST /grader`** scores an action against ground truth (same logic as `/step`) using the current episode or a given `shipment_id`.
+```
+reset(task_id) → observation → step(action) → reward + done=true
+```
+
+### Multi-step episodes (task3 with procedural generation)
+
+```
+reset(seed=N, task_id="task3")
+  → observation (max_steps=3, step_index=0)
+
+step(step_kind="request_information", requested_fields=["duty_rate_schedule", ...])
+  → observation (revealed_content={...}, step_index=1, done=false)
+
+step(step_kind="final_submission", hs_code=..., flags=..., ...)
+  → reward + done=true
+```
+
+Multi-step is backward-compatible: for `max_steps=1` or `step_kind="final_submission"` on step 0, the environment behaves exactly like a single-step episode.
 
 ---
 
 ## Observation space
 
-After `POST /reset`, the API returns a JSON object with the following fields.
+After `POST /reset`, the API returns:
 
 | Field | Type | Description |
 |--------|------|-------------|
-| `document_type` | string | e.g. `invoice` (task 1) or `shipment_file` (tasks 2–3). |
-| `document_content` | object | Structured fields for the shipment(s): invoice lines, packing list, bill of lading, etc. Task 2–3 may nest multiple documents under keys such as `documents`. |
+| `document_type` | string | `invoice` (task 1) or `shipment_file` (tasks 2–3). |
+| `document_content` | object | Structured shipment data: invoice lines, packing list, bill of lading, etc. |
 | `task_instruction` | string | What the agent must do this episode. |
 | `episode_id` | integer | Monotonic counter for the server process. |
-| `shipment_id` | string | Stable id for this scenario in `documents.py` (useful for `/grader` and debugging). |
-
-**Contract:** `document_content` is always a JSON object; its inner shape depends on the task and scenario. The agent should treat unknown keys gracefully.
+| `shipment_id` | string | Stable id for the scenario. |
+| `task_id` | string | `task1`, `task2`, or `task3`. |
+| `step_index` | integer | Current step within the episode (0-based). |
+| `max_steps` | integer | Maximum steps allowed (1 = single-step, 3 = multi-step). |
+| `revealed_content` | object | Additional info revealed after `request_information` steps. |
 
 ---
 
 ## Action space
 
-`POST /step` and `POST /grader` accept a JSON body with:
+`POST /step` accepts:
 
 | Field | Type | Required | Description |
 |--------|------|----------|-------------|
-| `hs_code` | string | yes | HS-style code, typically 8 digits with dots (e.g. `8518.30.00`). Required for all tasks; task 2 focuses on flags/recommendation but still accepts `hs_code`. |
-| `flags` | array of string | no (default `[]`) | Compliance / anomaly labels the agent asserts (exact strings compared to reference sets in the dataset). |
-| `recommendation` | string | yes | One of: `clear`, `hold`, `query_shipper`, `refer_to_customs`. |
-| `confidence` | number | no | `0.0`–`1.0`; informational for baselines, not used in scoring. |
-| `assessable_value_inr` | number or null | no | **Task 3:** estimated assessable value in **INR**. |
-| `duty_amount_inr` | number or null | no | **Task 3:** estimated duty in **INR**. |
+| `hs_code` | string | yes | 8-digit HS code with dots (e.g. `8518.30.00`). |
+| `flags` | array of string | no | Compliance/anomaly labels. |
+| `recommendation` | string | yes | `clear` \| `hold` \| `query_shipper` \| `refer_to_customs`. |
+| `confidence` | number | no | 0.0–1.0, informational. |
+| `assessable_value_inr` | number | no | Task 3: estimated assessable value in INR. |
+| `duty_amount_inr` | number | no | Task 3: estimated duty in INR. |
+| `step_kind` | string | no | `initial_review` \| `request_information` \| `final_submission` (default). |
+| `requested_fields` | array of string | no | Fields to request when `step_kind=request_information`. |
 
-**Recommendation enum (exact strings):**
-
-- `clear` — proceed subject to normal checks.  
-- `hold` — do not clear until discrepancies resolved.  
-- `query_shipper` — request clarification or documents from shipper.  
-- `refer_to_customs` — escalate (e.g. control, valuation, or classification risk).
+**Available fields for `request_information`:** `detailed_goods_description`, `certificate_of_origin`, `exchange_rate`, `duty_rate_schedule`.
 
 ---
 
-## Reward and step response
-
-`POST /step` returns:
-
-| Field | Type | Description |
-|--------|------|-------------|
-| `observation` | object | Same shape as after `/reset` (episode documents + ids). |
-| `reward` | number | Final score in `[0.0, 1.0]`. |
-| `done` | boolean | Always `true` after one step (single-step episodes). |
-| `info` | object | Includes `task_id`, `shipment_id`, and `breakdown` (per-task components). |
-
----
-
-## Tasks (prose)
+## Tasks
 
 ### Task 1 — HS Code Classification (easy)
 
-**`task_id`:** `task1`
-
-The agent receives a **single clean commercial invoice**: shipper, consignee, goods description, quantity, value, origin, ports. The instruction asks for the correct **HS code** for the goods. Ground truth is one reference HS code per scenario. Scoring rewards **exact** code match, with **partial credit** if the first four digit positions (chapter/heading) match.
+Single clean commercial invoice. Classify the goods with the correct 8-digit HS code. Exact match → full score; same chapter/heading (first 4 digits) → half score.
 
 ### Task 2 — Document Validation (medium)
 
-**`task_id`:** `task2`
-
-The agent receives a **small shipment file** (e.g. invoice + packing list + bill of lading) with **planted inconsistencies**: quantity mismatches, missing mandatory fields, undervaluation suspicion, consignee typos, weight mismatches, etc. The agent must **list all relevant flags** and choose the **correct recommendation**. Scoring combines **flag recall** with a penalty for **false flags**, plus **recommendation** accuracy (see below).
+Shipment file with planted inconsistencies (quantity mismatches, missing fields, undervaluation, consignee typos, weight discrepancies). List all flags and choose the correct recommendation. Scoring: 80% flag recall (with false-flag penalty) + 20% recommendation.
 
 ### Task 3 — Full Clearance Decision (hard)
 
-**`task_id`:** `task3`
+Complex shipment with vague descriptions, cross-document mismatches, valuation issues, origin discrepancies, and potentially controlled goods. Agent must provide HS code, flags, recommendation, and numeric estimates of assessable value and duty in INR. Scoring: 30% HS + 30% flags + 20% recommendation + 20% value/duty (within 5% tolerance).
 
-The agent receives a **messier file**: vague goods descriptions, cross-document mismatches, suspicious valuation, origin vs loading port issues, multilingual or partial foreign-language content, and higher-risk scenarios. The agent must propose an **HS code**, **flags**, **recommendation**, and **numeric estimates** of **assessable value** and **duty** in INR. Scoring uses multiple components (HS, flags, recommendation, value/duty within tolerance).
+**Flag vocabulary:**
+
+| Flag | Tasks | Meaning |
+|------|-------|---------|
+| `quantity_mismatch` | 2, 3 | PL quantity ≠ invoice quantity |
+| `missing_country_of_origin` | 2, 3 | Invoice lacks origin declaration |
+| `weight_mismatch_packing_vs_bl` | 2, 3 | Gross weight differs between PL and B/L |
+| `invoice_number_mismatch_bl_vs_invoice` | 2, 3 | B/L references wrong invoice number |
+| `missing_invoice_number_on_bl` | 2, 3 | B/L has no invoice reference |
+| `goods_description_mismatch_invoice_vs_packing_list` | 2, 3 | Goods described differently across docs |
+| `consignee_name_mismatch` | 2, 3 | Consignee name inconsistent |
+| `missing_notify_party` | 2, 3 | B/L lacks notify party |
+| `suspected_undervaluation` | 2, 3 | Declared value suspiciously low |
+| `vague_goods_description` | 3 | Description too generic for classification |
+| `origin_loading_mismatch` | 3 | Declared origin ≠ port of loading country |
+| `high_value_shipment` | 3 | Declared value exceeds $50,000 |
+| `dual_use_or_controlled_chemical_risk` | 3 | Chemical may require additional clearance |
+| `textile_declaration_review` | 3 | Textile from origin requiring special review |
 
 ---
 
 ## Scoring summary (deterministic)
 
-| Task | Main idea |
+| Task | Components |
 |------|-----------|
-| **task1** | Exact HS → full score; same first 4 digit run → half score; else zero. `hs_code` only drives the score. |
-| **task2** | **80%** from flags: recall on expected flags minus `0.15` per false flag, clamped; **20%** from matching `recommendation`. |
-| **task3** | **0.30** HS (half if same chapter/heading prefix); **0.30** flag overlap vs expected; **0.20** recommendation; **0.20** value/duty (**0.10** each) if within **5%** of reference INR amounts. |
+| **task1** | Exact HS → 1.0; same chapter (4 digits) → 0.5; else 0.0. |
+| **task2** | 80% flags (recall − 0.15 per false flag) + 20% recommendation. |
+| **task3** | 30% HS + 30% flag overlap + 20% recommendation + 10% assessable value (5% tol.) + 10% duty (5% tol.). |
 
-Full logic: `graders.py`. Dataset and labels: `documents.py`.
+All raw scores are mapped through `nudge_score()` → `[0.1, 0.9]` to stay within strict (0, 1) bounds. Full logic: `graders.py`.
 
 ---
 
-## Dataset
+## Procedural dataset generation
 
-- **24** synthetic shipments: **8** per task (`documents.py`).  
-- Each row has a `correct_answer` used by the grader (not sent to the agent).
+Beyond the 24 canonical scenarios in `documents.py`, the environment supports **unlimited procedural generation** via `dataset_generator.py`:
+
+- **30 commodity types** across 6 categories (electronics, textiles, chemicals, machinery, hardware, food, pharma) with real Indian Customs Tariff HS codes
+- **15 foreign shippers**, **10 Indian consignees**, **17 load ports**, **8 discharge ports**
+- **9 error recipes** that compose via a compatibility matrix (no conflicting mutations)
+- **Deterministic**: same `seed` always produces the same scenario
+- **CIF valuation**: `assessable_value = declared_USD × 83.0 × (1 + 0.04 + 0.0125)`, `duty = assessable × rate`
+
+To use procedural generation, pass `seed ≥ 1,000,000` to `/reset`:
+
+```bash
+curl -s -X POST http://localhost:7860/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id":"task3","seed":1000042}' | python3 -m json.tool
+```
+
+Seeds < 1,000,000 draw from the canonical 24-scenario pool (backward-compatible).
+
+---
+
+## Baseline scores
+
+Scores measured on canonical + procedural scenarios (5-run average):
+
+| Task | Perfect Agent | Partial Agent | Score Range |
+|------|--------------|---------------|-------------|
+| task1 | 0.900 | 0.500 | HS exact vs chapter-only |
+| task2 | 0.900 | 0.772 | All flags vs subset |
+| task3 | 0.900 | 0.502 | Full analysis vs partial |
+
+**Score interpretation:** The environment clearly differentiates agent quality. A perfect agent (all correct answers) scores 0.90 (the `nudge_score` ceiling). A partial agent that gets the HS chapter right but misses subheading, catches only one flag, and has >5% valuation error scores 0.50–0.77 depending on task complexity.
+
+To run your own baselines:
+
+```bash
+export OPENAI_API_KEY=sk-...
+export API_BASE_URL=https://api.openai.com/v1
+export MODEL_NAME=gpt-4o-mini
+export ENV_BASE_URL=http://127.0.0.1:7860
+python inference.py
+```
+
+---
+
+## Agent strategy guide
+
+Tips for building a strong agent for this environment:
+
+### Task 1 (HS classification)
+- Learn the HS chapter structure: first 2 digits = chapter (e.g., 85 = electrical equipment), next 2 = heading
+- The goods description in the invoice maps directly to a tariff line
+- Getting the first 4 digits right earns 50% — prioritize chapter/heading accuracy
+
+### Task 2 (document validation)
+- Systematically cross-reference: invoice ↔ packing list (quantities), invoice ↔ B/L (invoice numbers, weights, consignee)
+- Check for missing mandatory fields (country of origin, notify party)
+- Watch for suspiciously low declared values relative to quantity and goods type
+- Use exact flag strings from the vocabulary — creative paraphrasing scores 0
+
+### Task 3 (full clearance)
+- Use multi-step episodes: request `duty_rate_schedule` and `detailed_goods_description` before submitting
+- CIF valuation formula: `Declared USD × 83.0 × 1.0525` = assessable value INR
+- Duty = assessable value × rate (rates vary: 0% solar panels, 10% chemicals, 20% electronics, 35% textiles, 45% olive oil)
+- Check origin vs loading port country — a mismatch is always a flag
+- Chemicals with hazard data → `dual_use_or_controlled_chemical_risk` → `refer_to_customs`
+
+### General
+- Respond with valid JSON only — no markdown, no explanation
+- Use the exact flag strings and recommendation enum values
+- Confidence is informational and doesn't affect scoring
 
 ---
 
@@ -143,18 +239,18 @@ Full logic: `graders.py`. Dataset and labels: `documents.py`.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Service id and link to `/docs`. |
-| GET | `/health` | OpenEnv contract: `{"status":"healthy"}`. |
-| GET | `/metadata` | OpenEnv contract: `name`, `description`. |
-| GET | `/schema` | OpenEnv contract: JSON Schemas for `action`, `observation`, `state`. |
-| POST | `/mcp` | OpenEnv contract: JSON-RPC 2.0 stub (extensible). |
-| POST | `/reset` | Body: `{"task_id":"task1"\|"task2"\|"task3", "seed": optional}`. Returns observation. |
-| POST | `/step` | Body: action JSON. Returns reward + `done` + `info`. |
-| GET | `/state` | Current episode metadata (task, shipment, last reward). |
-| GET | `/tasks` | Task list + JSON Schema for the action. |
-| POST | `/grader` | Body: `{"action": {...}, "shipment_id": optional, "task_id": optional}`. Scores vs ground truth. |
-| GET | `/baseline` | Runs OpenAI baseline over all three tasks if `OPENAI_API_KEY` is set (see below). |
+| GET | `/health` | `{"status":"healthy"}`. |
+| GET | `/metadata` | Environment name, description, version, author. |
+| GET | `/schema` | JSON Schemas for action, observation, state. |
+| POST | `/mcp` | JSON-RPC 2.0 (MCP stub). |
+| POST | `/reset` | `{"task_id":"task1", "seed": optional}`. Returns observation. |
+| POST | `/step` | Action JSON. Returns reward + done + observation. |
+| GET | `/state` | Current episode metadata. |
+| GET | `/tasks` | Task list + action schema. |
+| POST | `/grader` | Score an action against ground truth. |
+| GET | `/baseline` | Runs LLM baseline if API key is set. |
 
-Interactive docs: `http://localhost:7860/docs` when running locally.
+Interactive docs: `http://localhost:7860/docs`
 
 ---
 
@@ -166,8 +262,6 @@ pip install -r requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 7860
 ```
 
----
-
 ## Docker
 
 ```bash
@@ -175,87 +269,16 @@ docker build -t customs-clearance-env .
 docker run --rm -p 7860:7860 customs-clearance-env
 ```
 
-Then use `http://127.0.0.1:7860` in the same way as local `uvicorn`.
-
----
-
-## Inference script (submission checklist)
-
-Root file **`inference.py`** runs the LLM against this environment using the **OpenAI** Python client and these variables:
-
-| Variable | Purpose |
-|----------|---------|
-| `API_BASE_URL` | LLM API base URL (e.g. `https://api.openai.com/v1` for OpenAI). |
-| `MODEL_NAME` | Model id passed to `chat.completions.create`. |
-| `HF_TOKEN` | API key for the client (`api_key=`; name follows hackathon spec). |
-| `ENV_BASE_URL` | Base URL of **this** customs API (default `http://127.0.0.1:7860`). Optional alias: `CHA_BASE_URL`. |
-
-Example (local env + OpenAI):
+## OpenEnv validation
 
 ```bash
-export API_BASE_URL=https://api.openai.com/v1
-export MODEL_NAME=gpt-4o-mini
-export HF_TOKEN=sk-...
-export ENV_BASE_URL=http://127.0.0.1:7860
-python inference.py
-```
-
-The script prints one line per task (`task1`–`task3`) with `score` and `error`. It should finish well under typical **20 minute** limits.
-
-## Baseline (HTTP)
-
-With the API running, `GET /baseline` uses the same env trio **`HF_TOKEN` + `API_BASE_URL` + `MODEL_NAME`** if all are set; otherwise it falls back to **`OPENAI_API_KEY`** + optional **`OPENAI_MODEL`** / **`API_BASE_URL`**.
-
-```bash
-export OPENAI_API_KEY=sk-...
-export CHA_BASE_URL=http://127.0.0.1:7860
-export OPENAI_MODEL=gpt-4o-mini
-curl -s http://127.0.0.1:7860/baseline | python3 -m json.tool
-```
-
-Legacy CLI: `python baseline.py` (uses `OPENAI_API_KEY`).
-
-### Baseline scores (fill after you run)
-
-| Task | Model | Score (0–1) | Notes |
-|------|--------|-------------|--------|
-| task1 | | *TBD* | |
-| task2 | | *TBD* | |
-| task3 | | *TBD* | |
-
-Replace `*TBD*` with scores from `inference.py` or `GET /baseline`. Document the **date** and **model** (`MODEL_NAME` or `OPENAI_MODEL`).
-
----
-
-## OpenEnv CLI and validation
-
-**Install the official Meta OpenEnv CLI** (not the unrelated PyPI package named `openenv`):
-
-```bash
-pip install openenv-core
-```
-
-**Runtime validation** (what automated checks use against a live server):
-
-```bash
-# Terminal A
+# Terminal A — start the server
 uvicorn main:app --host 0.0.0.0 --port 7860
 
-# Terminal B
+# Terminal B — validate
+pip install openenv-core
 openenv validate --url http://127.0.0.1:7860
 ```
-
-After Hugging Face deploy:
-
-```bash
-openenv validate --url https://YOUR_SPACE_URL
-```
-
-The validator expects, among other things: `GET /health` (`{"status":"healthy"}`), `GET /metadata` (`name`, `description`), `GET /schema` (`action`, `observation`, `state` JSON Schema objects), `POST /mcp` (JSON-RPC `2.0` envelope), plus `POST /reset`, `POST /step`, `GET /state` in simulation mode.
-
-**Local directory validation** (`openenv validate` with no URL) may require a full scaffold (e.g. `pyproject.toml`); this repo is optimized for Docker + FastAPI. If the hackathon only requires a passing `--url` check, use the commands above.
-
-Metadata file: `openenv.yaml`.
 
 ---
 
@@ -263,15 +286,16 @@ Metadata file: `openenv.yaml`.
 
 | Path | Role |
 |------|------|
-| `main.py` | FastAPI app and route definitions. |
+| `main.py` | FastAPI app entry point (uses `create_app()` from openenv SDK + custom routes). |
 | `app.py` | Re-exports `app` for HF Docker (`uvicorn app:app`). |
-| `environment.py` | Reset/step state machine. |
-| `documents.py` | Synthetic shipments + ground truth. |
-| `graders.py` | Task-specific scoring. |
-| `inference.py` | Submission LLM driver (`API_BASE_URL`, `MODEL_NAME`, `HF_TOKEN`). |
-| `baseline.py` | Legacy wrapper + `/baseline` helper using `OPENAI_API_KEY`. |
-| `openenv.yaml` | Environment metadata. |
-| `Dockerfile` | Container for HF Spaces / local. |
+| `environment_openenv.py` | OpenEnv `Environment` implementation with multi-step episode support. |
+| `dataset_generator.py` | Procedural scenario generator (30 commodities, 9 error recipes, unlimited seeds). |
+| `documents.py` | 24 canonical scenarios + ground truth (8 per task). |
+| `graders.py` | Task-specific deterministic scoring. |
+| `inference.py` | LLM agent driver with domain-specific prompts and multi-step support. |
+| `baseline.py` | Sync REST baseline helper + `/baseline` endpoint backend. |
+| `openenv.yaml` | OpenEnv environment metadata. |
+| `Dockerfile` | Container for HF Spaces / local deployment. |
 
 ---
 

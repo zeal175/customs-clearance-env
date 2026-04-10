@@ -1,6 +1,7 @@
 """
 Legacy baseline helpers used by FastAPI GET /baseline.
 This file is self-contained and provides sync REST-based evaluation.
+Uses the same domain-specific prompts as inference.py.
 """
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ from typing import Any
 import requests
 from openai import OpenAI
 from pydantic import BaseModel
+
+from inference import SYSTEM_PROMPT, TASK_TEMPLATES
 
 
 class BaselineResult(BaseModel):
@@ -28,28 +31,22 @@ def _extract_json(text: str) -> dict[str, Any]:
 
 
 def _llm_action(client: OpenAI, obs: dict, model: str, task_id: str) -> dict[str, Any]:
-    schema_hint = (
-        "Return a single JSON object with keys: "
-        '"hs_code" (string), "flags" (array of strings), '
-        '"recommendation" (one of: clear, hold, query_shipper, refer_to_customs), '
-        '"confidence" (0-1). For task3 also include '
-        '"assessable_value_inr" and "duty_amount_inr" (numbers).'
+    template = TASK_TEMPLATES[task_id]
+    user_content = template.format(
+        obs_json=json.dumps(obs, indent=2),
+        revealed_section="",
     )
     response = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": (
-                "You are an expert Indian sea-freight Custom House Agent (CHA). "
-                "Respond with ONLY valid JSON, no markdown fences."
-            )},
-            {"role": "user", "content": json.dumps(obs, indent=2) + "\n\n" + schema_hint},
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
         ],
-        temperature=0.2,
+        temperature=0.15,
     )
     raw = response.choices[0].message.content or ""
     data = _extract_json(raw)
-    
-    # Minimal validation/parsing
+
     return {
         "hs_code": str(data.get("hs_code", "")),
         "flags": list(data.get("flags") or []),
@@ -58,6 +55,7 @@ def _llm_action(client: OpenAI, obs: dict, model: str, task_id: str) -> dict[str
         "assessable_value_inr": float(data["assessable_value_inr"]) if "assessable_value_inr" in data else None,
         "duty_amount_inr": float(data["duty_amount_inr"]) if "duty_amount_inr" in data else None,
         "task_id": task_id,
+        "step_kind": "final_submission",
         "metadata": {},
     }
 
@@ -70,10 +68,14 @@ def evaluate_all_tasks(client: OpenAI, env_base_url: str, model: str) -> list[Ba
             r = requests.post(f"{env_base_url.rstrip('/')}/reset", json={"task_id": task_id}, timeout=120)
             r.raise_for_status()
             obs = r.json()
-            
+
             action = _llm_action(client, obs, model, task_id)
-            
-            sr = requests.post(f"{env_base_url.rstrip('/')}/step", json=action, timeout=120)
+
+            sr = requests.post(
+                f"{env_base_url.rstrip('/')}/step",
+                json={"action": action},
+                timeout=120,
+            )
             sr.raise_for_status()
             score = float(sr.json()["reward"])
             out.append(BaselineResult(task_id=task_id, score=score))
