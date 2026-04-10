@@ -1,5 +1,9 @@
+spec_version: 1
 name: customs-clearance-env
-version: 1.0.0
+type: space
+runtime: fastapi
+app: server.app:app
+port: 7860
 description: >
   An OpenEnv environment simulating Custom House Agent (CHA) operations
   in Indian sea freight. Agents must classify goods, validate documents,
@@ -10,6 +14,7 @@ tags:
   - trade-compliance
   - document-processing
   - customs
+  - openenv
 tasks:
   - id: task1
     name: HS Code Classification

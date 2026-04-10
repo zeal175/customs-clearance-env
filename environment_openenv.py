@@ -1,7 +1,7 @@
 """
-OpenEnv-compatible wrapper around ChaEnvironment.
-Adapts our existing environment to the openenv SDK's Environment/Action/Observation interfaces,
-enabling the /ws WebSocket endpoint via HTTPEnvServer.register_routes().
+OpenEnv-compatible environment for customs clearance.
+Implements openenv-core's Environment/Action/Observation interfaces,
+powering both HTTP and WebSocket endpoints via create_app/HTTPEnvServer.
 """
 from __future__ import annotations
 
@@ -12,13 +12,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from typing import Any, Optional
 from pydantic import Field
 from openenv.core.env_server.interfaces import Action, Environment, Observation
+from openenv.core.env_server.types import EnvironmentMetadata
 
 from documents import TASK_DOCUMENTS, get_document_by_task, list_task_ids
 from graders import ActionForGrading, grade_for_task, nudge_score
 import random
 
 
-# ── Action ────────────────────────────────────────────────────────────────────
 class ChaAction(Action):
     """Action for customs clearance tasks."""
     hs_code: str = Field(default="", description="8-digit HS code")
@@ -30,7 +30,6 @@ class ChaAction(Action):
     task_id: str = Field(default="task1", description="task1|task2|task3")
 
 
-# ── Observation ───────────────────────────────────────────────────────────────
 class ChaObservation(Observation):
     """Observation returned after reset or step."""
     document_type: str = Field(default="")
@@ -41,7 +40,6 @@ class ChaObservation(Observation):
     task_id: str = Field(default="task1")
 
 
-# ── Environment ───────────────────────────────────────────────────────────────
 class ChaOpenEnvEnvironment(Environment[ChaAction, ChaObservation, dict]):
     """OpenEnv wrapper around the customs clearance environment."""
 
@@ -84,8 +82,10 @@ class ChaOpenEnvEnvironment(Environment[ChaAction, ChaObservation, dict]):
         )
 
     def step(self, action: ChaAction, **kwargs) -> ChaObservation:
-        if self._done or self._current_doc is None:
-            raise RuntimeError("Episode finished; call reset() first.")
+        if self._current_doc is None:
+            self.reset(task_id=action.task_id or "task1")
+        if self._done:
+            self.reset(task_id=self._task_id)
         correct = self._current_doc["correct_answer"]
         a = ActionForGrading(
             hs_code=action.hs_code,
@@ -115,11 +115,22 @@ class ChaOpenEnvEnvironment(Environment[ChaAction, ChaObservation, dict]):
         return {
             "task_id": self._task_id,
             "done": self._done,
-            "episode_id": self._episode_count,
+            "episode_id": str(self._episode_count),
+            "step_count": 1 if self._done else 0,
             "shipment_id": self._current_doc["id"] if self._current_doc else None,
         }
 
+    def get_metadata(self) -> EnvironmentMetadata:
+        return EnvironmentMetadata(
+            name="customs-clearance-env",
+            description=(
+                "OpenEnv simulating Custom House Agent (CHA) operations in Indian sea freight. "
+                "Agents classify goods (HS codes), validate documents for compliance issues, "
+                "and make clearance decisions across 3 difficulty levels."
+            ),
+            version="1.0.1",
+            author="Rakesh Karthikeyan",
+        )
+
     def close(self) -> None:
         pass
-
-    
